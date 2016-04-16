@@ -1,25 +1,5 @@
+cmake_minimum_required(VERSION 3.1)
 project(hpxsplat)
-
-#------------------------------------------------------------------------------
-# Boost 
-#------------------------------------------------------------------------------
-set(Boost_ADDITIONAL_VERSIONS
-    ${Boost_ADDITIONAL_VERSIONS}
-    "1.59.0" "1.59"
-    "1.58.0" "1.58"
-    "1.57.0" "1.57")
-
-find_package(Boost 
-  1.55  
-  REQUIRED 
-  COMPONENTS
-    regex date_time serialization chrono atomic
-    program_options filesystem log log_setup system thread 
-)
-if (WIN32)
-  add_definitions(-DBOOST_ALL_DYN_LINK)
-  link_directories(${Boost_LIBRARY_DIR})
-endif()
 
 #--------------------------------------------------
 # Find HPX
@@ -37,11 +17,14 @@ endif()
 #--------------------------------------------------
 # VTK
 #--------------------------------------------------
-find_package(ParaView)
-if (ParaView_FOUND)
-  include(${ParaView_USE_FILE})
-  add_definitions(-DHPX_HAVE_VTK)
-  set(VTK_LIBS
+option(HPXSPLAT_ENABLE_RENDERING "Enable rendering with VTK" OFF)
+
+if(HPXSPLAT_ENABLE_RENDERING)
+  find_package(ParaView)
+  if (ParaView_FOUND)
+    include(${ParaView_USE_FILE})
+    add_definitions(-DHPXSPLAT_HAVE_VTK)
+    set(VTK_LIBS
 		  vtkTestingRendering
 		  vtkImagingCore
 		  vtkImagingSources
@@ -53,6 +36,7 @@ if (ParaView_FOUND)
 		  vtksys
 		  ${MPI_LIBRARIES}
 		  )
+  endif()
 endif()
 
 #--------------------------------------------------

@@ -11,6 +11,7 @@
 #include <hpx/include/parallel_scan.hpp>
 #include <hpx/util/zip_iterator.hpp>
 #include <hpx/util/transform_iterator.hpp>
+#include <hpx/util/lightweight_test.hpp>
 //
 #include <hpx/parallel/algorithms/sort_by_key.hpp>
 #include <hpx/parallel/algorithms/reduce_by_key.hpp>
@@ -18,7 +19,6 @@
 #include <boost/iterator/counting_iterator.hpp>
 #include <boost/iterator/permutation_iterator.hpp>
 //
-#include "sort_tests.hpp"
 #include <vector>
 #include <array>
 #include <random>
@@ -29,22 +29,21 @@
 #include "splatkernels/Gaussian.h"
 #include "simple_profiler.hpp"
 
-#ifdef HPX_HAVE_VTK
+#ifdef HPXSPLAT_HAVE_VTK
 # include "vtkPVConfig.h"
 # include <vtkImageData.h>
 # include <vtkSmartPointer.h>
 # include <vtkImageImport.h>
 # include <vtkMarchingCubes.h>
 # include <vtkPolyData.h>
-#include "vtkRenderWindow.h"
-#include "vtkRenderWindowInteractor.h"
-#include "vtkInteractorStyleSwitch.h"
-#include "vtkRenderer.h"
-#include "vtkPolyDataMapper.h"
-#include "vtkMPI.h"
-#include "vtkMPIController.h"
-#include "vtkMPICommunicator.h"
-//
+# include <vtkRenderWindow.h>
+# include <vtkRenderWindowInteractor.h>
+# include <vtkInteractorStyleSwitch.h>
+# include <vtkRenderer.h>
+# include <vtkPolyDataMapper.h>
+# include <vtkMPI.h>
+# include <vtkMPIController.h>
+# include <vtkMPICommunicator.h>
 #endif
 //
 #define DEBUG_OUTPUT
@@ -114,7 +113,7 @@ struct options
     const int volume_dimension = 128;
     const int kernel_radius = 3;
     const int kernel_scale = 25.0;
-#ifdef HPX_HAVE_VTK
+#ifdef HPXSPLAT_HAVE_VTK
     vtkSmartPointer<vtkMPIController> controller;
 #endif
 };
@@ -124,7 +123,7 @@ options global_options;
 template<typename T> using CoordType = std::array<T, 3>;
 using PointType = CoordType<double>;
 //
-#ifndef HPX_HAVE_VTK
+#ifndef HPXSPLAT_HAVE_VTK
 # define vtkIdType int64_t 
 #endif
 
@@ -541,7 +540,7 @@ std::pair<std::vector<vtkIdType>, std::vector<float>> ProcessPoints(ExPolicy &&p
 // ----------------------------------------------------------------------------
 void test_splat()
 {
-#ifdef HPX_HAVE_VTK
+#ifdef HPXSPLAT_HAVE_VTK
     MPI_Init(0, NULL);
     global_options.controller = vtkSmartPointer<vtkMPIController>::New();
     global_options.controller->Initialize(0, NULL, 1);
@@ -690,7 +689,7 @@ void test_splat()
 
     std::cout << "time " << main_timer.elapsed() << " seconds" << std::endl;
 
-#ifdef HPX_HAVE_VTK
+#ifdef HPXSPLAT_HAVE_VTK
     if (global_options.render) {
         // Convert the c-style image to a vtkImageData
         vtkSmartPointer<vtkImageImport> imageImport = vtkSmartPointer<
@@ -827,8 +826,10 @@ int main(int argc, char *argv[])
     cfg.push_back("hpx.os_threads=" +
                   boost::lexical_cast<std::string>(hpx::threads::hardware_concurrency()));
 
-    HPX_TEST_EQ_MSG(hpx::init(desc_commandline, argc, argv, cfg), 0,
-        "HPX main exited with non-zero status");
+    HPX_TEST_EQ_MSG(
+        hpx::init(desc_commandline, argc, argv, cfg), 0,
+        "HPX main exited with non-zero status"
+    );
 
     return hpx::util::report_errors();
 }
