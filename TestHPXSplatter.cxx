@@ -186,7 +186,7 @@ struct kernel_compute
     kernel_compute(const kernel &k, const std::array<double, 3> &orig,
         const std::array<double, 3> &s, const Id3Type &dim)
     // const Kernel &k)
-        : kernel_(k), spacing_(s), origin_(orig), dimension_(dim) { } // , kernel(k) { }
+        : kernel_(k), origin_(orig), spacing_(s), dimension_(dim) { } // , kernel(k) { }
 
     template<typename T2, typename P>
     void operator()(const CoordType<P> &splatPoint, MinMaxTuple &minmaxtuple,
@@ -201,11 +201,12 @@ struct kernel_compute
         vtkIdType j = remainder / xRange;
         vtkIdType k = remainder % xRange;
         // note the order of k,j,i
-        Id3Type voxel = {std::get<0>(minmaxtuple)[0] + k, std::get<0>(minmaxtuple)[1] + j,
-                         std::get<0>(minmaxtuple)[2] + i};
-        PointType dist = {(splatPoint[0] - voxel[0]) * spacing_[0],
-                          (splatPoint[1] - voxel[1]) * spacing_[0],
-                          (splatPoint[2] - voxel[2]) * spacing_[0]};
+        Id3Type voxel = {{std::get<0>(minmaxtuple)[0] + k,
+                          std::get<0>(minmaxtuple)[1] + j,
+                          std::get<0>(minmaxtuple)[2] + i}};
+        PointType dist = {{(splatPoint[0] - voxel[0]) * spacing_[0],
+                           (splatPoint[1] - voxel[1]) * spacing_[0],
+                           (splatPoint[2] - voxel[2]) * spacing_[0]}};
         double dist2 = std::inner_product(std::begin(dist), std::end(dist),
             std::begin(dist), 0.0);
         // Compute splat value using the kernel distance_squared function
@@ -273,9 +274,9 @@ struct kernel_compute_atomic
         vtkIdType k = remainder % xRange;
         // note the order of k,j,i
         Id3Type voxel = {
-            std::get<0>(minmaxtuple)[0] + k,
-            std::get<0>(minmaxtuple)[1] + j,
-            std::get<0>(minmaxtuple)[2] + i };
+            {std::get<0>(minmaxtuple)[0] + k,
+             std::get<0>(minmaxtuple)[1] + j,
+             std::get<0>(minmaxtuple)[2] + i} };
         PointType dist = {
             (splatPoint[0] - voxel[0]) * spacing_[0],
             (splatPoint[1] - voxel[1]) * spacing_[0],
@@ -555,9 +556,9 @@ void test_splat()
 
     // create a field array to store the data in
     // origin and spacing of volume
-    PointType origin = {0.0, 0.0, 0.0};
-    PointType spacing = {1.0, 1.0, 1.0};
-    Id3Type dimensions = {volume_size, volume_size, volume_size};
+    PointType origin = {{0.0, 0.0, 0.0}};
+    PointType spacing = {{1.0, 1.0, 1.0}};
+    Id3Type dimensions = {{volume_size, volume_size, volume_size}};
 
 #ifdef HPXSPLATTER_ATOMIC
     std::atomic<double> zero(0);
@@ -593,7 +594,7 @@ void test_splat()
         std::back_insert_iterator<std::vector<PointType>> back_ins(ptsArray);
         hpx::parallel::generate_n(policypar, back_ins, N, [&]()
         {
-            return PointType {Dx(gen), Dy(gen), Dz(gen)};
+            return PointType {{Dx(gen), Dy(gen), Dz(gen)}};
         });
     }
 

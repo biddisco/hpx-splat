@@ -122,7 +122,7 @@ struct Gaussian : public KernelBase< Gaussian<Dimensions> >
                                scale_GradW_ * exp(-Q * Q) * pos[2]};
         }
         else {
-            return vector_type{0.0, 0.0, 0.0};
+            return vector_type{{0.0, 0.0, 0.0}};
         }
     }
 
@@ -139,12 +139,12 @@ struct Gaussian : public KernelBase< Gaussian<Dimensions> >
         //!!! check this due to the fitting offset
         if (distance != 0.0)
         {
-            return vector_type{scale_GradW * exp(-Q * Q) * pos[0],
-                               scale_GradW * exp(-Q * Q) * pos[1],
-                               scale_GradW * exp(-Q * Q) * pos[2]};
+            return vector_type{{scale_GradW * exp(-Q * Q) * pos[0],
+                                scale_GradW * exp(-Q * Q) * pos[1],
+                                scale_GradW * exp(-Q * Q) * pos[2]}};
         }
         else {
-            return vector_type{0.0};
+            return vector_type{{0.0}};
         }
     }
 
