@@ -87,6 +87,7 @@ struct atomwrapper {
   atomwrapper &operator=(const atomwrapper &other)
   {
     _a.store(other._a.load());
+    return *this;
   }
 
   atomwrapper &operator+=(T val)
@@ -109,6 +110,7 @@ struct options
     unsigned int fchunk{1000};
     unsigned int points{10};
     bool         render{0};
+    bool         atomic{0};
 
     const int volume_dimension = 128;
     const int kernel_radius = 3;
@@ -238,7 +240,7 @@ struct kernel_compute_atomic
 
     kernel_compute_atomic(const kernel &k, const std::array<double, 3> &orig,
         const std::array<double, 3> &s, const Id3Type &dim, atomic_vector &av)
-        : kernel_(k), spacing_(s), origin_(orig), dimension_(dim), atomic_vector_(av)
+        : kernel_(k), origin_(orig), spacing_(s), dimension_(dim), atomic_vector_(av)
     { }
 
     template<typename T2, typename P>
@@ -278,9 +280,9 @@ struct kernel_compute_atomic
              std::get<0>(minmaxtuple)[1] + j,
              std::get<0>(minmaxtuple)[2] + i} };
         PointType dist = {
-            (splatPoint[0] - voxel[0]) * spacing_[0],
-            (splatPoint[1] - voxel[1]) * spacing_[0],
-            (splatPoint[2] - voxel[2]) * spacing_[0] };
+            {(splatPoint[0] - voxel[0]) * spacing_[0],
+             (splatPoint[1] - voxel[1]) * spacing_[0],
+             (splatPoint[2] - voxel[2]) * spacing_[0]} };
         double dist2 = std::inner_product(
             std::begin(dist), std::end(dist), std::begin(dist), 0.0);
         // Compute splat value using the kernel distance_squared function
@@ -560,15 +562,22 @@ void test_splat()
     PointType spacing = {{1.0, 1.0, 1.0}};
     Id3Type dimensions = {{volume_size, volume_size, volume_size}};
 
-#ifdef HPXSPLATTER_ATOMIC
+    std::vector<double> fieldArray;
     std::atomic<double> zero(0);
     using gaussian = vtkm::worklet::splatkernels::Gaussian<3>;
     gaussian gaussiansplat{1.0};
-    atomic_vector fieldArray(volume_size * volume_size * volume_size, zero);
-    kernel_compute_atomic<gaussian> splatter(gaussiansplat, origin, spacing, dimensions, fieldArray);
-#else
-    std::vector<double> fieldArray(volume_size * volume_size * volume_size, 0.0);
-#endif
+    atomic_vector atomic_fieldArray;
+    kernel_compute_atomic<gaussian> splatter(gaussiansplat, origin, spacing, dimensions, atomic_fieldArray);
+
+    //
+    // Variables we need for the atomic version
+    //
+    if (global_options.atomic) {
+      atomic_fieldArray.assign(volume_size * volume_size * volume_size, zero);
+    }
+    else {
+      fieldArray.assign(volume_size * volume_size * volume_size, 0.0);
+    }
 
     // random generator between 0 and volume size
     std::default_random_engine gen(global_options.seed);
@@ -603,90 +612,90 @@ void test_splat()
         return ptA[2] < ptB[2];
     });
 
-#ifndef HPXSPLATTER_ATOMIC
-    typedef hpx::util::zip_iterator<vit<vtkIdType>, vit<float>> zip_it;
-    typedef zip_it::reference zip_ref;
-    //
-    vit<PointType> pbegin = std::begin(ptsArray);
-    vit<PointType> pend = std::end(ptsArray);
-    //
-    // create a dummy future we will use as our start result.
-    hpx::future<zip_it> final_future = hpx::make_ready_future<zip_it>(zip_it());
-    //
-    const int numsteps = global_options.chains;
-    const int stepsize = ptsArray.size() / numsteps;
-    for (int i=0; i<numsteps; i++) {
+    if (not global_options.atomic) {
+
+      typedef hpx::util::zip_iterator<vit<vtkIdType>, vit<float>> zip_it;
+      typedef zip_it::reference zip_ref;
+      //
+      vit<PointType> pbegin = std::begin(ptsArray);
+      vit<PointType> pend = std::end(ptsArray);
+      //
+      // create a dummy future we will use as our start result.
+      hpx::future<zip_it> final_future = hpx::make_ready_future<zip_it>(zip_it());
+      //
+      const int numsteps = global_options.chains;
+      const int stepsize = ptsArray.size() / numsteps;
+      for (int i=0; i<numsteps; i++) {
         vit<PointType> p0 = pbegin + (i * stepsize);
         vit<PointType> p1 = (i == numsteps - 1) ? pend : pbegin + (i + 1) * stepsize;
         //
         typedef std::pair<std::vector<vtkIdType>, std::vector<float>> result_type;
         result_type result;
         {
-            simple_profiler_ptr process = hpx::util::make_profiler(main_loop, "Process");
-            // run the main processor to generate voxel points/values
-            result = std::move(ProcessPoints(policyseq,
-                p0, p1, origin,
-                spacing, dimensions, process
-            ));
+          simple_profiler_ptr process = hpx::util::make_profiler(main_loop, "Process");
+          // run the main processor to generate voxel points/values
+          result = std::move(ProcessPoints(policyseq,
+                                           p0, p1, origin,
+                                           spacing, dimensions, process
+                                           ));
         }
         //
         final_future = final_future.then(
             std::bind([&main_loop, &fieldArray](
-                    std::vector<vtkIdType> voxel_ids,
-                    std::vector<float> outvalues,
-                    hpx::future<zip_it> &&f)
-                {
-                    simple_profiler_ptr field_copy = hpx::util::make_profiler(
-                        main_loop, "field_copy"
+               std::vector<vtkIdType> voxel_ids,
+               std::vector<float> outvalues,
+               hpx::future<zip_it> &&f)
+               {
+                 simple_profiler_ptr field_copy = hpx::util::make_profiler(main_loop, "field_copy");
+                 //
+                 f.get();
+                 //
+                 zip_it zbegin = hpx::util::make_zip_iterator(
+                                                              std::begin(voxel_ids),
+                                                              std::begin(outvalues));
+                 zip_it zend = hpx::util::make_zip_iterator(
+                                                            std::end(voxel_ids),
+                                                            std::end(outvalues));
+                 //
+                 return hpx::parallel::for_each(
+                    hpx::parallel::par(hpx::parallel::task).with(hpx::parallel::static_chunk_size(global_options.fchunk)),
+                    zbegin, zend, [&fieldArray](zip_ref ref)
+                    {
+                      vtkIdType id = hpx::util::get<0>(ref);
+                      float value = hpx::util::get<1>(ref);
+                      fieldArray[id] += value;
+                    }
                     );
-                    //
-                    f.get();
-                    //
-                    zip_it zbegin = hpx::util::make_zip_iterator(
-                        std::begin(voxel_ids),
-                        std::begin(outvalues));
-                    zip_it zend = hpx::util::make_zip_iterator(
-                        std::end(voxel_ids),
-                        std::end(outvalues));
-                    //
-                    return hpx::parallel::for_each(
-                        hpx::parallel::par(hpx::parallel::task).with(hpx::parallel::static_chunk_size(global_options.fchunk)),
-                        zbegin, zend, [&fieldArray](zip_ref ref)
-                        {
-                            vtkIdType id = hpx::util::get<0>(ref);
-                            float value = hpx::util::get<1>(ref);
-                            fieldArray[id] += value;
-                        }
-                    );
-                },
-                std::move(result.first),
-                std::move(result.second),
-                std::placeholders::_1
-            )
-        );
+               },
+               std::move(result.first),
+               std::move(result.second),
+               std::placeholders::_1
+               )
+           );
+      }
+      //fieldArray[half_size + (half_size * volume_size) + (half_size * volume_size * volume_size)] = 10.0;
+      
+      // wait for the final stage to complete
+      final_future.get();
+      main_loop->done();
     }
-    //fieldArray[half_size + (half_size * volume_size) + (half_size * volume_size * volume_size)] = 10.0;
-
-    // wait for the final stage to complete
-    final_future.get();
-    main_loop->done();
-#else
-    hpx::parallel::for_each(hpx::parallel::par, ptsArray.begin(), ptsArray.end(),
-        [&splatter](const PointType &ptA)
-        {
+    else {
+      hpx::parallel::for_each(hpx::parallel::par, ptsArray.begin(), ptsArray.end(),
+          [&splatter](const PointType &ptA)
+          {
             PointType splatPoint;
             MinMaxTuple minmaxtuple;
             vtkIdType footprintSize;
             splatter.footprint(ptA, global_options.kernel_radius, splatPoint, minmaxtuple, footprintSize);
 
             for (int i=0; i<footprintSize; ++i) {
-                splatter.operator()(
-                    ptA, global_options.kernel_radius, global_options.kernel_scale,
-                    i, minmaxtuple, splatPoint);
+              splatter.operator()(
+                                  ptA, global_options.kernel_radius, global_options.kernel_scale,
+                                  i, minmaxtuple, splatPoint);
             }
-        }
-    );
-#endif
+          }
+      );
+    }
 
     std::cout << "time " << main_timer.elapsed() << " seconds" << std::endl;
 
@@ -795,6 +804,11 @@ int hpx_main(boost::program_options::variables_map &vm)
         global_options.render = vm["render"].as < bool > ();
     std::cout << "using render: " << global_options.render << std::endl;
 
+    global_options.atomic = 0;
+    if (vm.count("atomic"))
+        global_options.atomic = vm["atomic"].as < bool > ();
+    std::cout << "using atomic: " << global_options.atomic << std::endl;
+
     test_splat();
 
     return hpx::finalize();
@@ -821,6 +835,9 @@ int main(int argc, char *argv[])
 
     desc_commandline.add_options()("render,r", value<bool>(),
         "enable/disable rendering");
+
+    desc_commandline.add_options()("atomic,a", value<bool>(),
+        "use atomic algorithm");
 
     // By default this test should run on all available cores
     std::vector<std::string> cfg;
